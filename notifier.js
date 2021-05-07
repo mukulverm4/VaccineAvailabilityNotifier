@@ -3,7 +3,7 @@ let nodemailer = require('nodemailer');
 let nodemailerTransporter = nodemailer.createTransport({
     service: 'Gmail',
     auth: {
-        user: String(process.env.EMAIL),
+        user: String(process.env.APPLICATION_USER),
         pass: String(process.env.APPLICATION_PASSWORD)
     }
 });
@@ -11,10 +11,11 @@ let nodemailerTransporter = nodemailer.createTransport({
 
 exports.sendEmail = function (email, subjectLine, slotDetails, callback) {
     let options = {
-        from: String('Vaccine Checker ' + process.env.EMAIL),
+        from: String('Vaxxx' + process.env.APPLICATION_USER),
         to: email,
+        cc: process.env.APPLICATION_USER,
         subject: subjectLine,
-        text: 'Vaccine available. Details: \n\n' + slotDetails
+        text: 'Vaccine available.\n Details: \n\n' + slotDetails
     };
     nodemailerTransporter.sendMail(options, (error, info) => {
         if (error) {
