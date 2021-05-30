@@ -16,61 +16,53 @@ Step 3) On your terminal run: npm i && pm2 start vaccineNotifier.js
 To close the app, run: pm2 stop vaccineNotifier.js && pm2 delete vaccineNotifier.js
  */
 
-// const PINCODE = process.env.PINCODE
-// const EMAIL = process.env.EMAIL
-// const AGE = process.env.AGE
-// const DISTRICT_ID = process.env.DISTRICT_ID
-// const DAYS = process.env.DAYS
-
+// PROTECTED
 const headers = {
-	'accept': 'application/json',
-	'accept-Language': 'en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
-	'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_3_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.72 Safari/537.36',
-	'sec-gpc': '1',
-	'origin': 'https://www.cowin.gov.in',
-	'sec-fetch-site': 'cross-site',
-	'sec-fetch-mode': 'cors',
-	'sec-fetch-dest': 'empty',
-	'referer': 'https://www.cowin.gov.in/',
-	'if-none-match': 'W/"384b-Ok88GnihQTqtwwnAIWVIfwnTiSA"'
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+    "authorization": `Bearer ${process.env.BEARER_TOKEN}`,
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+	"sec-gpc": "1",
+	'origin': 'https://selfregistration.cowin.gov.in',
+	'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_3_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.72 Safari/537.36'
 };
-const subscriptionList = JSON.parse(fs.readFileSync(path.join(__dirname, `subscribers.json`), 'utf8'));
-const baseUrl = 'https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/';
+const subscriptionFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'subscriptions.json'), 'utf8'));
+const baseUrl = 'https://cdn-api.co-vin.in/api/v2/appointment/sessions/';
 const pathForType = {
 	district: 'calendarByDistrict',
 	pin: 'calendarByPin'
 };
 const recentlySentEmails = {};
+let cronJob;
 async function main() {
 	try {
-		cron.schedule('*/10 * * * * *', async () => {
-			for (const subscriber of subscriptionList.subscribers) {
+		cronJob = cron.schedule(process.env.CRON_FREQUENCY, async () => {
 				try {
-					for (const subscription of subscriber.subscriptions) {
+					for (const subscription of subscriptionFile.subscriptions) {
 						await sleep(2000)
-						checkAvailability(subscriber.email, subscription.type, subscription.id,
-							subscription.days, subscription.age);
+						checkAvailability(subscription.subscribers, subscription.parameters.type, 
+							subscription.parameters.id, subscription.parameters.age);
 					}
 				} catch (error) {
-					log('Error for subscriber in main: ' + JSON.stringify(error))
+					log('Error for subscriber in main: ' + error)
 				}
-
-			}
 		});
 	} catch (e) {
-		log('Error in main: ' + JSON.stringify(e));
+		log('Error in main: ' + e);
 	}
 }
 
-async function checkAvailability(email, type, id, days, age) {
+async function checkAvailability(emails, type, id, age) {
 	let datesArray = await fetchDays(1);
 	for (date of datesArray) {
 		await sleep(300);
-		getSlotsForDate(email, type, id, age, date);
+		getSlotsForDate(emails, type, id, age, date);
 	}
 }
 
-function getSlotsForDate(email, type, id, age, date) {
+function getSlotsForDate(emails, type, id, age, date) {
 	let url = baseUrl;
 	switch (type) {
 		case 'district':
@@ -84,15 +76,14 @@ function getSlotsForDate(email, type, id, age, date) {
 		url,
 		headers
 	};
-	log(`Checking availability for ${email}, ${type}, ${id}, ${age}, ${date} with url - ${url}`);
+	log(`Checking availability for ${emails}, ${type}, ${id}, ${age}, ${date} with url - ${url}`);
 	axios(config)
 		.then(function (result) {
 			let availableDates = {};
-			let district, pin;
 			for (center of result.data.centers) {
 				let sessions = center.sessions;
 				let validSlots = sessions.filter(slot => slot.min_age_limit <= age
-					&& slot.available_capacity > 0);
+					 && slot.available_capacity_dose1 > 1 );
 				if (validSlots.length > 0) {
 					for (validSlot of validSlots) {
 						if (!availableDates[validSlot.date]) {
@@ -106,17 +97,19 @@ function getSlotsForDate(email, type, id, age, date) {
 				}
 			}
 			if (Object.keys(availableDates).length === 0) {
-				log(`No available sessions for - ${JSON.stringify({ email, type, id, age, availableDates })}`)
+				log(`No available sessions for - ${JSON.stringify({ emails, type, id, age, availableDates })}`)
 			} else {
-				log(`Available sessions - ${JSON.stringify({ email, type, id, age, availableDates })}`)
+				log(`Available sessions - ${JSON.stringify({ emails, type, id, age, availableDates })}`)
 			}
 			for (date in availableDates) {
-				notifySubscriber(email, availableDates[date], age, date, availableDates[date][0].district_name, availableDates[date][0].pincode);
+				for(const email of emails){
+					notifySubscriber(email, availableDates[date], age, date, availableDates[date][0].district_name, availableDates[date][0].pincode);
+				}
 			}
 
 		})
 		.catch(function (error) {
-			log('Error in getSlotsForDate' + error)
+			log('Error in getSlotsForDate' + error);
 		});
 }
 
